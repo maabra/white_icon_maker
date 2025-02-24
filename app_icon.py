@@ -1,10 +1,16 @@
-import os
+
 import win32com.client
 import win32gui
 import win32ui
 import win32con
-from PIL import Image
 from configparser import ConfigParser
+from PIL import Image, ImageFilter, ImageOps
+import os
+from PIL import Image, ImageFilter, ImageOps
+import os
+import numpy as np
+import cv2
+
 
 def get_target_and_icon_from_lnk(lnk_path):
     """Extracts the target path and icon path from a .lnk file."""
@@ -62,23 +68,54 @@ def extract_icon(icon_path):
         print(f"Failed to extract icon from {icon_path}: {e}")
     return None
 
+def enhanced_remove_artifacts(image, min_cluster_size=5):
+    width, height = image.size
+    cleaned = image.copy()
+    visited = set()
+    
+    def get_cluster(x, y):
+        cluster = set()
+        stack = [(x, y)]
+        
+        while stack:
+            cx, cy = stack.pop()
+            if (cx, cy) in cluster:
+                continue
+                
+            cluster.add((cx, cy))
+            
+            # Check 8-connected neighbors
+            for dx, dy in [(-1,-1), (-1,0), (-1,1), (0,-1), (0,1), (1,-1), (1,0), (1,1)]:
+                nx, ny = cx + dx, cy + dy
+                if (0 <= nx < width and 0 <= ny < height and 
+                    (nx, ny) not in cluster and 
+                    image.getpixel((nx, ny))[3] > 0):
+                    stack.append((nx, ny))
+        
+        return cluster
+    
+    # Find and remove small clusters
+    for y in range(height):
+        for x in range(width):
+            if (x, y) not in visited and image.getpixel((x, y))[3] > 0:
+                cluster = get_cluster(x, y)
+                visited.update(cluster)
+                
+                if len(cluster) < min_cluster_size:
+                    for cx, cy in cluster:
+                        cleaned.putpixel((cx, cy), (255, 255, 255, 0))
+    
+    return cleaned
 
 def remove_artifacts(image):
-    """
-    Remove isolated white pixels from the image.
-    A white pixel is considered isolated if none of its surrounding pixels (in an 8-neighborhood)
-    is also white.
-    """
     width, height = image.size
     cleaned = image.copy()
     
     for y in range(height):
         for x in range(width):
             r, g, b, a = image.getpixel((x, y))
-            # Check if the pixel is white (and not transparent)
             if a > 0 and r == 255 and g == 255 and b == 255:
                 has_white_neighbor = False
-                # Look at surrounding pixels (8-connected neighborhood)
                 for j in range(max(0, y - 1), min(height, y + 2)):
                     for i in range(max(0, x - 1), min(width, x + 2)):
                         if (i, j) == (x, y):
@@ -89,143 +126,129 @@ def remove_artifacts(image):
                             break
                     if has_white_neighbor:
                         break
-                # If no white neighbors, remove the artifact by setting it to transparent.
                 if not has_white_neighbor:
                     cleaned.putpixel((x, y), (255, 255, 255, 0))
-    return cleaned
+    return cleaned.filter(ImageFilter.SMOOTH_MORE)
+
+def apply_antialiasing(image):
+    return image.filter(ImageFilter.SMOOTH_MORE)
+
+def edge_detection(img):
+    grayscale = img.convert("L")
+    edges = grayscale.filter(ImageFilter.FIND_EDGES)
+    edges = edges.point(lambda p: 255 if p > 50 else 0)  # Thresholding
+    edges = ImageOps.invert(edges).convert("RGBA")
+    return edges
+
+def extract_edges_and_lines(image):
+    # Convert PIL Image to numpy array for OpenCV processing
+    img_array = np.array(image)
+    
+    # Convert to grayscale if needed
+    if len(img_array.shape) == 3:
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = img_array
+    
+    # Apply Canny edge detection
+    edges = cv2.Canny(gray, 50, 150, apertureSize=3)
+    
+    # Apply probabilistic Hough transform
+    lines = cv2.HoughLinesP(
+        edges,
+        rho=1,
+        theta=np.pi/180,
+        threshold=50,
+        minLineLength=20,
+        maxLineGap=10
+    )
+    
+    # Create blank image for lines
+    line_image = np.zeros_like(img_array)
+    
+    if lines is not None:
+        for line in lines:
+            x1, y1, x2, y2 = line[0]
+            cv2.line(line_image, (x1, y1), (x2, y2), (255, 255, 255), 2)
+    
+    # Convert back to PIL Image
+    return Image.fromarray(line_image)
+
+def process_icon_with_edges(img, base_name, output_folder):
+    try:
+        img = img.convert("RGBA")
+        
+        # Edge detection based processing
+        edges = edge_detection(img)
+        edges = enhanced_remove_artifacts(edges)
+        edges = apply_antialiasing(edges)
+        
+        # Extract lines using enhanced edge detection
+        line_image = extract_edges_and_lines(img)
+        line_image = line_image.convert("RGBA")
+        
+        # Apply post-processing to line image
+        line_image = enhanced_remove_artifacts(line_image)
+        line_image = apply_antialiasing(line_image)
+        
+        # Save edge-based results
+        edge_path = os.path.join(output_folder, f"{base_name}_white_edges.ico")
+        line_path = os.path.join(output_folder, f"{base_name}_white_lines.ico")
+        
+        edges.save(edge_path, format='ICO')
+        line_image.save(line_path, format='ICO')
+        
+        print(f"Saved edge detection versions: {edge_path}, {line_path}")
+        
+    except Exception as e:
+        print(f"Failed to process edge detection for {base_name}: {e}")
 
 def process_icon(img, base_name, output_folder):
-    """Processes the icon image to create specific variations with transparency."""
     try:
-        # Ensure the image is in RGBA mode
         img = img.convert("RGBA")
         width, height = img.size
 
-        # Method 1: Delete lighter parts, make darker parts white
-        img_contrast = Image.new("RGBA", img.size, (255, 255, 255, 0))
-        for y in range(height):
-            for x in range(width):
-                r, g, b, a = img.getpixel((x, y))
-                if a > 0:  # If not fully transparent
-                    brightness = (r + g + b) / 3
-                    if brightness < 128:  # Darker parts
-                        img_contrast.putpixel((x, y), (255, 255, 255, a))
-        # Remove isolated white artifacts
-        img_contrast = remove_artifacts(img_contrast)
-        # Save first variation
-        contrast_path = os.path.join(output_folder, f"{base_name}_white.ico")
-        img_contrast.save(contrast_path, format='ICO')
-        print(f"Saved contrast white version: {contrast_path}")
+        def process_variation(condition_fn, filename_suffix):
+            img_variant = Image.new("RGBA", img.size, (255, 255, 255, 0))
+            for y in range(height):
+                for x in range(width):
+                    r, g, b, a = img.getpixel((x, y))
+                    if a > 0 and condition_fn(r, g, b):
+                        img_variant.putpixel((x, y), (255, 255, 255, a))
+            img_variant = enhanced_remove_artifacts(img_variant)
+            img_variant = apply_antialiasing(img_variant)
+            output_path = os.path.join(output_folder, f"{base_name}_{filename_suffix}.ico")
+            img_variant.save(output_path, format='ICO')
+            print(f"Saved {filename_suffix} version: {output_path}")
 
-        # Method 2: Delete darker parts, make lighter parts white
-        img_contrast_alt = Image.new("RGBA", img.size, (255, 255, 255, 0))
-        for y in range(height):
-            for x in range(width):
-                r, g, b, a = img.getpixel((x, y))
-                if a > 0:
-                    brightness = (r + g + b) / 3
-                    if brightness >= 128:  # Lighter parts
-                        img_contrast_alt.putpixel((x, y), (255, 255, 255, a))
-        img_contrast_alt = remove_artifacts(img_contrast_alt)
-        contrast_alt_path = os.path.join(output_folder, f"{base_name}_white_alt.ico")
-        img_contrast_alt.save(contrast_alt_path, format='ICO')
-        print(f"Saved contrast white alt version: {contrast_alt_path}")
-
-        # Method 3: Original image turned white while respecting transparency
-        img_white = Image.new("RGBA", img.size, (255, 255, 255, 0))
-        for y in range(height):
-            for x in range(width):
-                r, g, b, a = img.getpixel((x, y))
-                if a > 0:
-                    img_white.putpixel((x, y), (255, 255, 255, a))
-        img_white = remove_artifacts(img_white)
-        white_path = os.path.join(output_folder, f"{base_name}_white_original.ico")
-        img_white.save(white_path, format='ICO')
-        print(f"Saved original white version: {white_path}")
-
-        # Method 4: Remove black parts (make transparent), rest becomes white
-        img_no_black = Image.new("RGBA", img.size, (255, 255, 255, 0))
-        for y in range(height):
-            for x in range(width):
-                r, g, b, a = img.getpixel((x, y))
-                if a > 0:
-                    avg_color = (r + g + b) / 3
-                    if avg_color <= 30:  # Pixel is very dark
-                        continue  # Remain transparent
-                    else:
-                        img_no_black.putpixel((x, y), (255, 255, 255, a))
-        img_no_black = remove_artifacts(img_no_black)
-        no_black_path = os.path.join(output_folder, f"{base_name}_white_no_black.ico")
-        img_no_black.save(no_black_path, format='ICO')
-        print(f"Saved no-black white version: {no_black_path}")
-
-        # Method 5: Remove white parts (make transparent), rest becomes white
-        img_no_white = Image.new("RGBA", img.size, (255, 255, 255, 0))
-        for y in range(height):
-            for x in range(width):
-                r, g, b, a = img.getpixel((x, y))
-                if a > 0:
-                    avg_color = (r + g + b) / 3
-                    if avg_color >= 225:  # Pixel is very light
-                        continue  # Remain transparent
-                    else:
-                        img_no_white.putpixel((x, y), (255, 255, 255, a))
-        img_no_white = remove_artifacts(img_no_white)
-        no_white_path = os.path.join(output_folder, f"{base_name}_white_no_white.ico")
-        img_no_white.save(no_white_path, format='ICO')
-        print(f"Saved no-white white version: {no_white_path}")
-
-        # Method 6: Keep only white parts, make everything else transparent
-        img_only_white = Image.new("RGBA", img.size, (255, 255, 255, 0))
-        for y in range(height):
-            for x in range(width):
-                r, g, b, a = img.getpixel((x, y))
-                if a > 0:
-                    avg_color = (r + g + b) / 3
-                    if avg_color >= 225:
-                        img_only_white.putpixel((x, y), (255, 255, 255, a))
-        img_only_white = remove_artifacts(img_only_white)
-        only_white_path = os.path.join(output_folder, f"{base_name}_white_only.ico")
-        img_only_white.save(only_white_path, format='ICO')
-        print(f"Saved white-only version: {only_white_path}")
-
-        # Method 7: Enhanced pixel art processing for detailed icons
-        img_pixel = Image.new("RGBA", img.size, (255, 255, 255, 0))
+        # Standard variations
+        process_variation(lambda r, g, b: (r + g + b) / 3 < 128, "white")
+        process_variation(lambda r, g, b: (r + g + b) / 3 >= 128, "white_alt")
+        process_variation(lambda r, g, b: True, "white_original")
+        process_variation(lambda r, g, b: (r + g + b) / 3 > 30, "white_no_black")
+        process_variation(lambda r, g, b: (r + g + b) / 3 < 225, "white_no_white")
+        process_variation(lambda r, g, b: (r + g + b) / 3 >= 225, "white_only")
+        process_variation(lambda r, g, b: (r + g + b) / 3 <= 60 or 60 < (r + g + b) / 3 < 130 or ((r + g + b) / 3 >= 200 and r > 200 and g > 200 and b > 200), "white_pix")
         
-        # Enhanced parameters for detailed pixel art
-        light_threshold = 200  # For white/light pixels
-        dark_threshold = 60    # For dark/detail pixels
-        mid_threshold = 130    # For midtone detection
-        alpha_threshold = 30   # Minimum alpha to consider
+        # Edge and line detection processing
+        process_icon_with_edges(img, base_name, output_folder)
         
-        for y in range(height):
-            for x in range(width):
-                r, g, b, a = img.getpixel((x, y))
-                if a >= alpha_threshold:
-                    brightness = (r + g + b) / 3
-                    
-                    is_feature = (
-                        (brightness <= dark_threshold) or
-                        (dark_threshold < brightness < mid_threshold) or
-                        (brightness >= light_threshold and a > 200)
-                    )
-                    
-                    if is_feature:
-                        img_pixel.putpixel((x, y), (255, 255, 255, a))
-        img_pixel = remove_artifacts(img_pixel)
-        pixel_path = os.path.join(output_folder, f"{base_name}_white_pix.ico")
-        img_pixel.save(pixel_path, format='ICO')
-        print(f"Saved enhanced pixel art version: {pixel_path}")
+        # Characteristic variations
+        create_characteristic_variations(img_path=None, output_folder=output_folder, img=img, base_name=base_name)
 
     except Exception as e:
         print(f"Failed to process icon for {base_name}: {e}")
-        
-def create_characteristic_variations(img_path, output_folder):
+
+def create_characteristic_variations(img_path=None, output_folder=None, img=None, base_name=None):
     """Creates two opposing variations based on dominant image characteristics."""
     try:
-        # Open and convert image
-        img = Image.open(img_path).convert("RGBA")
-        base_name = os.path.splitext(os.path.basename(img_path))[0]
+        # Handle both direct image input and path input
+        if img_path is not None:
+            img = Image.open(img_path).convert("RGBA")
+            base_name = os.path.splitext(os.path.basename(img_path))[0]
+        elif img is None or base_name is None:
+            raise ValueError("Either img_path or both img and base_name must be provided")
+            
         width, height = img.size
         
         # Analysis arrays
@@ -293,6 +316,12 @@ def create_characteristic_variations(img_path, output_folder):
                         img_type1.putpixel((x, y), (255, 255, 255, a))
                     else:
                         img_type2.putpixel((x, y), (255, 255, 255, a))
+        
+        # Apply enhanced processing to characteristic variations
+        img_type1 = enhanced_remove_artifacts(img_type1)
+        img_type2 = enhanced_remove_artifacts(img_type2)
+        img_type1 = apply_antialiasing(img_type1)
+        img_type2 = apply_antialiasing(img_type2)
         
         # Save variations
         type1_path = os.path.join(output_folder, f"{base_name}{suffix1}.ico")
