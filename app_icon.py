@@ -62,6 +62,38 @@ def extract_icon(icon_path):
         print(f"Failed to extract icon from {icon_path}: {e}")
     return None
 
+
+def remove_artifacts(image):
+    """
+    Remove isolated white pixels from the image.
+    A white pixel is considered isolated if none of its surrounding pixels (in an 8-neighborhood)
+    is also white.
+    """
+    width, height = image.size
+    cleaned = image.copy()
+    
+    for y in range(height):
+        for x in range(width):
+            r, g, b, a = image.getpixel((x, y))
+            # Check if the pixel is white (and not transparent)
+            if a > 0 and r == 255 and g == 255 and b == 255:
+                has_white_neighbor = False
+                # Look at surrounding pixels (8-connected neighborhood)
+                for j in range(max(0, y - 1), min(height, y + 2)):
+                    for i in range(max(0, x - 1), min(width, x + 2)):
+                        if (i, j) == (x, y):
+                            continue
+                        nr, ng, nb, na = image.getpixel((i, j))
+                        if na > 0 and nr == 255 and ng == 255 and nb == 255:
+                            has_white_neighbor = True
+                            break
+                    if has_white_neighbor:
+                        break
+                # If no white neighbors, remove the artifact by setting it to transparent.
+                if not has_white_neighbor:
+                    cleaned.putpixel((x, y), (255, 255, 255, 0))
+    return cleaned
+
 def process_icon(img, base_name, output_folder):
     """Processes the icon image to create specific variations with transparency."""
     try:
@@ -78,7 +110,8 @@ def process_icon(img, base_name, output_folder):
                     brightness = (r + g + b) / 3
                     if brightness < 128:  # Darker parts
                         img_contrast.putpixel((x, y), (255, 255, 255, a))
-
+        # Remove isolated white artifacts
+        img_contrast = remove_artifacts(img_contrast)
         # Save first variation
         contrast_path = os.path.join(output_folder, f"{base_name}_white.ico")
         img_contrast.save(contrast_path, format='ICO')
@@ -89,12 +122,11 @@ def process_icon(img, base_name, output_folder):
         for y in range(height):
             for x in range(width):
                 r, g, b, a = img.getpixel((x, y))
-                if a > 0:  # If not fully transparent
+                if a > 0:
                     brightness = (r + g + b) / 3
                     if brightness >= 128:  # Lighter parts
                         img_contrast_alt.putpixel((x, y), (255, 255, 255, a))
-
-        # Save second variation
+        img_contrast_alt = remove_artifacts(img_contrast_alt)
         contrast_alt_path = os.path.join(output_folder, f"{base_name}_white_alt.ico")
         img_contrast_alt.save(contrast_alt_path, format='ICO')
         print(f"Saved contrast white alt version: {contrast_alt_path}")
@@ -104,10 +136,9 @@ def process_icon(img, base_name, output_folder):
         for y in range(height):
             for x in range(width):
                 r, g, b, a = img.getpixel((x, y))
-                if a > 0:  # If not fully transparent
+                if a > 0:
                     img_white.putpixel((x, y), (255, 255, 255, a))
-
-        # Save third variation
+        img_white = remove_artifacts(img_white)
         white_path = os.path.join(output_folder, f"{base_name}_white_original.ico")
         img_white.save(white_path, format='ICO')
         print(f"Saved original white version: {white_path}")
@@ -117,15 +148,13 @@ def process_icon(img, base_name, output_folder):
         for y in range(height):
             for x in range(width):
                 r, g, b, a = img.getpixel((x, y))
-                if a > 0:  # If not fully transparent
-                    # Check if pixel is close to black (using average RGB)
+                if a > 0:
                     avg_color = (r + g + b) / 3
-                    if avg_color <= 30:  # If pixel is very dark
-                        continue  # Keep transparent
+                    if avg_color <= 30:  # Pixel is very dark
+                        continue  # Remain transparent
                     else:
                         img_no_black.putpixel((x, y), (255, 255, 255, a))
-
-        # Save fourth variation
+        img_no_black = remove_artifacts(img_no_black)
         no_black_path = os.path.join(output_folder, f"{base_name}_white_no_black.ico")
         img_no_black.save(no_black_path, format='ICO')
         print(f"Saved no-black white version: {no_black_path}")
@@ -135,15 +164,13 @@ def process_icon(img, base_name, output_folder):
         for y in range(height):
             for x in range(width):
                 r, g, b, a = img.getpixel((x, y))
-                if a > 0:  # If not fully transparent
-                    # Check if pixel is close to white (using average RGB)
+                if a > 0:
                     avg_color = (r + g + b) / 3
-                    if avg_color >= 225:  # If pixel is very light
-                        continue  # Keep transparent
+                    if avg_color >= 225:  # Pixel is very light
+                        continue  # Remain transparent
                     else:
                         img_no_white.putpixel((x, y), (255, 255, 255, a))
-
-        # Save fifth variation
+        img_no_white = remove_artifacts(img_no_white)
         no_white_path = os.path.join(output_folder, f"{base_name}_white_no_white.ico")
         img_no_white.save(no_white_path, format='ICO')
         print(f"Saved no-white white version: {no_white_path}")
@@ -153,20 +180,16 @@ def process_icon(img, base_name, output_folder):
         for y in range(height):
             for x in range(width):
                 r, g, b, a = img.getpixel((x, y))
-                if a > 0:  # If not fully transparent
-                    # Check if pixel is close to white (using average RGB)
+                if a > 0:
                     avg_color = (r + g + b) / 3
-                    if avg_color >= 225:  # If pixel is very light/white
+                    if avg_color >= 225:
                         img_only_white.putpixel((x, y), (255, 255, 255, a))
-                    else:
-                        continue  # Keep transparent
-
-        # Save sixth variation
+        img_only_white = remove_artifacts(img_only_white)
         only_white_path = os.path.join(output_folder, f"{base_name}_white_only.ico")
         img_only_white.save(only_white_path, format='ICO')
         print(f"Saved white-only version: {only_white_path}")
 
-        # Method 7: Enhanced pixel art processing specifically for detailed icons
+        # Method 7: Enhanced pixel art processing for detailed icons
         img_pixel = Image.new("RGBA", img.size, (255, 255, 255, 0))
         
         # Enhanced parameters for detailed pixel art
@@ -181,29 +204,22 @@ def process_icon(img, base_name, output_folder):
                 if a >= alpha_threshold:
                     brightness = (r + g + b) / 3
                     
-                    # Detect important features (like cat's outline and details)
                     is_feature = (
-                        # Catch darker details
                         (brightness <= dark_threshold) or
-                        # Catch midtones that form important features
                         (dark_threshold < brightness < mid_threshold) or
-                        # Catch light details that are part of the main shape
                         (brightness >= light_threshold and a > 200)
                     )
                     
-                    # Check surrounding pixels for edge detection
                     if is_feature:
-                        # Preserve the pixel with original alpha
                         img_pixel.putpixel((x, y), (255, 255, 255, a))
-
-        # Save enhanced pixel art version
+        img_pixel = remove_artifacts(img_pixel)
         pixel_path = os.path.join(output_folder, f"{base_name}_white_pix.ico")
         img_pixel.save(pixel_path, format='ICO')
         print(f"Saved enhanced pixel art version: {pixel_path}")
 
     except Exception as e:
         print(f"Failed to process icon for {base_name}: {e}")
-
+        
 def create_characteristic_variations(img_path, output_folder):
     """Creates two opposing variations based on dominant image characteristics."""
     try:
