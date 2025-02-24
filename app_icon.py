@@ -174,34 +174,201 @@ def extract_edges_and_lines(image):
     # Convert back to PIL Image
     return Image.fromarray(line_image)
 
+def extract_edges_and_fill(image):
+    # Convert PIL Image to numpy array for OpenCV processing
+    img_array = np.array(image)
+    
+    # Convert to grayscale if needed
+    if len(img_array.shape) == 3:
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = img_array
+    
+    # Apply Canny edge detection with adjusted thresholds
+    edges = cv2.Canny(gray, 30, 150)
+    
+    # Dilate edges to connect potential gaps
+    kernel = np.ones((3,3), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=2)
+    
+    # Find contours
+    contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    # Create mask for filling
+    mask = np.zeros_like(gray)
+    
+    # Fill contours
+    for contour in contours:
+        # Filter small contours
+        if cv2.contourArea(contour) > 100:  # Adjust threshold as needed
+            cv2.drawContours(mask, [contour], -1, (255), -1)
+    
+    # Create RGBA image
+    result = np.zeros((img_array.shape[0], img_array.shape[1], 4), dtype=np.uint8)
+    result[mask == 255] = [255, 255, 255, 255]  # White with full opacity
+    result[mask == 0] = [255, 255, 255, 0]      # Transparent
+    
+    # Convert back to PIL Image
+    return Image.fromarray(result)
+
+def create_transparency_from_edges(image):
+    # Convert PIL Image to numpy array for OpenCV processing
+    img_array = np.array(image)
+    
+    # Convert to grayscale if needed
+    if len(img_array.shape) == 3:
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = img_array
+    
+    # Apply Gaussian blur to reduce noise
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    
+    # Apply adaptive thresholding
+    thresh = cv2.adaptiveThreshold(
+        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+        cv2.THRESH_BINARY_INV, 11, 2
+    )
+    
+    # Find contours
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    # Create mask
+    mask = np.zeros_like(gray)
+    
+    # Fill significant contours
+    for contour in contours:
+        if cv2.contourArea(contour) > 50:  # Adjust threshold as needed
+            cv2.drawContours(mask, [contour], -1, (255), -1)
+    
+    # Create RGBA image
+    result = np.zeros((img_array.shape[0], img_array.shape[1], 4), dtype=np.uint8)
+    result[mask == 255] = [255, 255, 255, 255]  # White with full opacity
+    result[mask == 0] = [255, 255, 255, 0]      # Transparent
+    
+    return Image.fromarray(result)
+
+def form_coherent_lines(image):
+    img_array = np.array(image)
+    
+    # Convert to grayscale if needed
+    if len(img_array.shape) == 3:
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = img_array
+    
+    # Minimal blur to preserve details
+    blurred = cv2.GaussianBlur(gray, (3, 3), 0.5)
+    
+    # Adaptive thresholding for better detail preservation
+    thresh = cv2.adaptiveThreshold(
+        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+        cv2.THRESH_BINARY_INV, 11, 2
+    )
+    
+    # Enhanced morphological operations
+    kernel = np.ones((5,5), np.uint8)  # Slightly smaller kernel for better detail
+    cleaned = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+    
+    # Find and smooth contours
+    contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    # Create result image
+    result = np.zeros((img_array.shape[0], img_array.shape[1], 4), dtype=np.uint8)
+    
+    # Draw smoothed contours
+    for contour in contours:
+        # Adjust epsilon for smoother curves
+        epsilon = 0.005 * cv2.arcLength(contour, True)  # Smaller epsilon for more detail
+        approx = cv2.approxPolyDP(contour, epsilon, True)
+        cv2.drawContours(result, [approx], -1, (255, 255, 255, 255), thickness=cv2.FILLED)
+    
+    # Final smoothing
+    kernel_smooth = np.ones((3,3), np.uint8)
+    result = cv2.dilate(result, kernel_smooth, iterations=1)
+    
+    return Image.fromarray(result)
+
 def process_icon_with_edges(img, base_name, output_folder):
     try:
         img = img.convert("RGBA")
         
-        # Edge detection based processing
-        edges = edge_detection(img)
-        edges = enhanced_remove_artifacts(edges)
-        edges = apply_antialiasing(edges)
+        # Thick version (previous implementation)
+        thick_version = form_coherent_lines_thick(img)
+        thick_version = enhanced_remove_artifacts(thick_version)
+        thick_version = apply_antialiasing(thick_version)
         
-        # Extract lines using enhanced edge detection
-        line_image = extract_edges_and_lines(img)
-        line_image = line_image.convert("RGBA")
+        # Curved version (new implementation)
+        curved_version = form_coherent_lines_curved(img)
+        curved_version = enhanced_remove_artifacts(curved_version)
+        curved_version = apply_antialiasing(curved_version)
         
-        # Apply post-processing to line image
-        line_image = enhanced_remove_artifacts(line_image)
-        line_image = apply_antialiasing(line_image)
+        # Save both variations
+        thick_path = os.path.join(output_folder, f"{base_name}_white_thick.ico")
+        curved_path = os.path.join(output_folder, f"{base_name}_white_curved.ico")
         
-        # Save edge-based results
-        edge_path = os.path.join(output_folder, f"{base_name}_white_edges.ico")
-        line_path = os.path.join(output_folder, f"{base_name}_white_lines.ico")
+        thick_version.save(thick_path, format='ICO')
+        curved_version.save(curved_path, format='ICO')
         
-        edges.save(edge_path, format='ICO')
-        line_image.save(line_path, format='ICO')
-        
-        print(f"Saved edge detection versions: {edge_path}, {line_path}")
+        print(f"Saved both versions: {thick_path}, {curved_path}")
         
     except Exception as e:
-        print(f"Failed to process edge detection for {base_name}: {e}")
+        print(f"Failed to process versions for {base_name}: {e}")
+
+def form_coherent_lines_thick(image):
+    # Previous implementation with 7x7 kernel
+    img_array = np.array(image)
+    if len(img_array.shape) == 3:
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = img_array
+    
+    blurred = cv2.GaussianBlur(gray, (3, 3), 0.5)
+    thresh = cv2.adaptiveThreshold(
+        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+        cv2.THRESH_BINARY_INV, 11, 2
+    )
+    
+    kernel = np.ones((7,7), np.uint8)
+    cleaned = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+    cleaned = cv2.dilate(cleaned, kernel, iterations=1)
+    
+    result = np.zeros((img_array.shape[0], img_array.shape[1], 4), dtype=np.uint8)
+    result[cleaned == 255] = [255, 255, 255, 255]
+    result[cleaned == 0] = [255, 255, 255, 0]
+    
+    return Image.fromarray(result)
+
+def form_coherent_lines_curved(image):
+    # New implementation with contour smoothing
+    img_array = np.array(image)
+    if len(img_array.shape) == 3:
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = img_array
+    
+    blurred = cv2.GaussianBlur(gray, (3, 3), 0.5)
+    thresh = cv2.adaptiveThreshold(
+        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+        cv2.THRESH_BINARY_INV, 11, 2
+    )
+    
+    kernel = np.ones((5,5), np.uint8)
+    cleaned = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+    
+    contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    result = np.zeros((img_array.shape[0], img_array.shape[1], 4), dtype=np.uint8)
+    
+    for contour in contours:
+        epsilon = 0.005 * cv2.arcLength(contour, True)
+        approx = cv2.approxPolyDP(contour, epsilon, True)
+        cv2.drawContours(result, [approx], -1, (255, 255, 255, 255), thickness=cv2.FILLED)
+    
+    kernel_smooth = np.ones((3,3), np.uint8)
+    result = cv2.dilate(result, kernel_smooth, iterations=1)
+    
+    return Image.fromarray(result)
 
 def process_icon(img, base_name, output_folder):
     try:
