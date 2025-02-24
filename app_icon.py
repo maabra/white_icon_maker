@@ -63,7 +63,7 @@ def extract_icon(icon_path):
     return None
 
 def process_icon(img, base_name, output_folder):
-    """Processes the icon image to create five specific variations with transparency."""
+    """Processes the icon image to create specific variations with transparency."""
     try:
         # Ensure the image is in RGBA mode
         img = img.convert("RGBA")
@@ -147,7 +147,6 @@ def process_icon(img, base_name, output_folder):
         no_white_path = os.path.join(output_folder, f"{base_name}_white_no_white.ico")
         img_no_white.save(no_white_path, format='ICO')
         print(f"Saved no-white white version: {no_white_path}")
-        # Add this as Method 6 in the process_icon function:
 
         # Method 6: Keep only white parts, make everything else transparent
         img_only_white = Image.new("RGBA", img.size, (255, 255, 255, 0))
@@ -166,7 +165,6 @@ def process_icon(img, base_name, output_folder):
         only_white_path = os.path.join(output_folder, f"{base_name}_white_only.ico")
         img_only_white.save(only_white_path, format='ICO')
         print(f"Saved white-only version: {only_white_path}")
-    
 
         # Method 7: Enhanced pixel art processing specifically for detailed icons
         img_pixel = Image.new("RGBA", img.size, (255, 255, 255, 0))
@@ -203,10 +201,9 @@ def process_icon(img, base_name, output_folder):
         img_pixel.save(pixel_path, format='ICO')
         print(f"Saved enhanced pixel art version: {pixel_path}")
 
-        
     except Exception as e:
         print(f"Failed to process icon for {base_name}: {e}")
-        
+
 def create_characteristic_variations(img_path, output_folder):
     """Creates two opposing variations based on dominant image characteristics."""
     try:
