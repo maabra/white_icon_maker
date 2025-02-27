@@ -5,6 +5,13 @@ From 2015 ive been creating white icons in Ps so the desktop looks sleeker. Ive 
 
 Works by placing the app on desktop (sadly, looking for requirements yourself) and running the py file. All created icos are created in a new folder titled Processed_Icons. There are numerous methods that cover a lot of types of images to try and create the most functional one out of all that is offered. 
 
+Example of given icons:
+
+- icons highlighted green are what I deem as decent results
+- tried to give as varied examples as I could, e.g. pixelart, two tone, gradation, high density of colour, complicated design, very basic color palette, etc.
+![Screenshot 2025-02-27 101639](https://github.com/user-attachments/assets/27412091-f4e5-4294-a424-a87f98e653ca)
+
+
 A little bit of showcasing from old to new (FYI: new including icons created by this tool):
 
 ![Screenshot_2 edited](https://github.com/user-attachments/assets/b99c4ba4-f5c8-49fd-8856-55dfde31afe6)
