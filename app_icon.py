@@ -13,14 +13,14 @@ import cv2
 
 
 def get_target_and_icon_from_lnk(lnk_path):
-    """Extracts the target path and icon path from a .lnk file."""
+    #target path and icon path from a .lnk file
     try:
         shell = win32com.client.Dispatch("WScript.Shell")
         shortcut = shell.CreateShortCut(lnk_path)
         target_path = shortcut.Targetpath
         icon_path = shortcut.IconLocation.split(',')[0]
         
-        # Use the target path if icon path is not valid
+        #if icon path is not valid
         if not icon_path or not os.path.exists(icon_path):
             icon_path = target_path
         
@@ -36,7 +36,7 @@ def get_target_and_icon_from_lnk(lnk_path):
 def extract_icon(icon_path):
     """Extracts an icon from an .exe, .ico, or .dll file and returns it as an Image object."""
     try:
-        # Extract icons from the file
+        #icons from the file
         large, small = win32gui.ExtractIconEx(icon_path, 0)
         if not large and not small:
             print(f"No icons found in {icon_path}")
@@ -44,17 +44,17 @@ def extract_icon(icon_path):
         
         hicon = large[0] if large else small[0]
         
-        # Set up device context
+        #set up device context
         hdc = win32ui.CreateDCFromHandle(win32gui.GetDC(0))
         hdc_mem = hdc.CreateCompatibleDC()
         bmp = win32ui.CreateBitmap()
         bmp.CreateCompatibleBitmap(hdc, 256, 256)
         hdc_mem.SelectObject(bmp)
         
-        # Draw the icon into the bitmap
+        #draw the icon into the bitmap
         win32gui.DrawIconEx(hdc_mem.GetSafeHdc(), 0, 0, hicon, 256, 256, 0, None, win32con.DI_NORMAL)
         
-        # Convert the bitmap to an image
+        #convert to an image
         bmpinfo = bmp.GetInfo()
         bmpstr = bmp.GetBitmapBits(True)
         img = Image.frombuffer(
@@ -63,7 +63,7 @@ def extract_icon(icon_path):
             bmpstr, 'raw', 'BGRA', 0, 1
         )
         
-        return img  # Return the Image object directly for further processing
+        return img  #retuurn the directly for further processing
     except Exception as e:
         print(f"Failed to extract icon from {icon_path}: {e}")
     return None
@@ -84,7 +84,7 @@ def enhanced_remove_artifacts(image, min_cluster_size=5):
                 
             cluster.add((cx, cy))
             
-            # Check 8-connected neighbors
+            #check 8-connected neighbors
             for dx, dy in [(-1,-1), (-1,0), (-1,1), (0,-1), (0,1), (1,-1), (1,0), (1,1)]:
                 nx, ny = cx + dx, cy + dy
                 if (0 <= nx < width and 0 <= ny < height and 
@@ -94,7 +94,7 @@ def enhanced_remove_artifacts(image, min_cluster_size=5):
         
         return cluster
     
-    # Find and remove small clusters
+    #find and remove small clusters
     for y in range(height):
         for x in range(width):
             if (x, y) not in visited and image.getpixel((x, y))[3] > 0:
@@ -141,19 +141,19 @@ def edge_detection(img):
     return edges
 
 def extract_edges_and_lines(image):
-    # Convert PIL Image to numpy array for OpenCV processing
+    #convert PIL Image to numpy array for processing
     img_array = np.array(image)
     
-    # Convert to grayscale if needed
+    #convert to grayscale
     if len(img_array.shape) == 3:
         gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
     else:
         gray = img_array
     
-    # Apply Canny edge detection
+    #apply Canny 
     edges = cv2.Canny(gray, 50, 150, apertureSize=3)
     
-    # Apply probabilistic Hough transform
+    #apply Hough transform
     lines = cv2.HoughLinesP(
         edges,
         rho=1,
@@ -163,127 +163,115 @@ def extract_edges_and_lines(image):
         maxLineGap=10
     )
     
-    # Create blank image for lines
+    #create blank image for lines
     line_image = np.zeros_like(img_array)
     
     if lines is not None:
         for line in lines:
             x1, y1, x2, y2 = line[0]
             cv2.line(line_image, (x1, y1), (x2, y2), (255, 255, 255), 2)
-    
-    # Convert back to PIL Image
+
     return Image.fromarray(line_image)
 
 def extract_edges_and_fill(image):
-    # Convert PIL Image to numpy array for OpenCV processing
+    #same shit
     img_array = np.array(image)
-    
-    # Convert to grayscale if needed
+
     if len(img_array.shape) == 3:
         gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
     else:
         gray = img_array
     
-    # Apply Canny edge detection with adjusted thresholds
+    #different shit
+    #apply Canny 
     edges = cv2.Canny(gray, 30, 150)
     
-    # Dilate edges to connect potential gaps
+    #connect potential gaps
     kernel = np.ones((3,3), np.uint8)
     dilated = cv2.dilate(edges, kernel, iterations=2)
     
-    # Find contours
+    #find contours
     contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    # Create mask for filling
+
     mask = np.zeros_like(gray)
     
-    # Fill contours
+    #fill contours and smaller
     for contour in contours:
-        # Filter small contours
-        if cv2.contourArea(contour) > 100:  # Adjust threshold as needed
+        if cv2.contourArea(contour) > 100:  #for tweaking
             cv2.drawContours(mask, [contour], -1, (255), -1)
     
-    # Create RGBA image
+    #create RGBA image
     result = np.zeros((img_array.shape[0], img_array.shape[1], 4), dtype=np.uint8)
-    result[mask == 255] = [255, 255, 255, 255]  # White with full opacity
-    result[mask == 0] = [255, 255, 255, 0]      # Transparent
+    result[mask == 255] = [255, 255, 255, 255]  #white with full opacity
+    result[mask == 0] = [255, 255, 255, 0]      #transparent
     
-    # Convert back to PIL Image
     return Image.fromarray(result)
 
 def create_transparency_from_edges(image):
-    # Convert PIL Image to numpy array for OpenCV processing
     img_array = np.array(image)
     
-    # Convert to grayscale if needed
     if len(img_array.shape) == 3:
         gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
     else:
         gray = img_array
     
-    # Apply Gaussian blur to reduce noise
+    #Gaussian blur
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     
-    # Apply adaptive thresholding
+    #apply adaptive thresholding
     thresh = cv2.adaptiveThreshold(
         blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
         cv2.THRESH_BINARY_INV, 11, 2
     )
     
-    # Find contours
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    # Create mask
     mask = np.zeros_like(gray)
     
-    # Fill significant contours
+    #test
     for contour in contours:
-        if cv2.contourArea(contour) > 50:  # Adjust threshold as needed
+        if cv2.contourArea(contour) > 50:
             cv2.drawContours(mask, [contour], -1, (255), -1)
     
-    # Create RGBA image
+
     result = np.zeros((img_array.shape[0], img_array.shape[1], 4), dtype=np.uint8)
-    result[mask == 255] = [255, 255, 255, 255]  # White with full opacity
-    result[mask == 0] = [255, 255, 255, 0]      # Transparent
+    result[mask == 255] = [255, 255, 255, 255] 
+    result[mask == 0] = [255, 255, 255, 0]
     
     return Image.fromarray(result)
 
 def form_coherent_lines(image):
     img_array = np.array(image)
-    
-    # Convert to grayscale if needed
+
     if len(img_array.shape) == 3:
         gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
     else:
         gray = img_array
     
-    # Minimal blur to preserve details
     blurred = cv2.GaussianBlur(gray, (3, 3), 0.5)
-    
-    # Adaptive thresholding for better detail preservation
+
     thresh = cv2.adaptiveThreshold(
         blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
         cv2.THRESH_BINARY_INV, 11, 2
     )
     
-    # Enhanced morphological operations
-    kernel = np.ones((5,5), np.uint8)  # Slightly smaller kernel for better detail
+    #morphological operations
+    kernel = np.ones((5,5), np.uint8)  #slightly smaller kernel for better detail
     cleaned = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
     
-    # Find and smooth contours
     contours, _ = cv2.findContours(cleaned, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    # Create result image
+    #create result image
     result = np.zeros((img_array.shape[0], img_array.shape[1], 4), dtype=np.uint8)
     
-    # Draw smoothed contours
+    #fraw smoothed contours
     for contour in contours:
-        # Adjust epsilon for smoother curves
-        epsilon = 0.005 * cv2.arcLength(contour, True)  # Smaller epsilon for more detail
+        #adjust epsilon, smoother curves
+        epsilon = 0.005 * cv2.arcLength(contour, True)
         approx = cv2.approxPolyDP(contour, epsilon, True)
         cv2.drawContours(result, [approx], -1, (255, 255, 255, 255), thickness=cv2.FILLED)
     
-    # Final smoothing
+    #final smoothing
     kernel_smooth = np.ones((3,3), np.uint8)
     result = cv2.dilate(result, kernel_smooth, iterations=1)
     
@@ -293,17 +281,17 @@ def process_icon_with_edges(img, base_name, output_folder):
     try:
         img = img.convert("RGBA")
         
-        # Thick version (previous implementation)
+        #thick version (previous implementation)
         thick_version = form_coherent_lines_thick(img)
         thick_version = enhanced_remove_artifacts(thick_version)
         thick_version = apply_antialiasing(thick_version)
         
-        # Curved version (new implementation)
+        #curved version (new implementation)
         curved_version = form_coherent_lines_curved(img)
         curved_version = enhanced_remove_artifacts(curved_version)
         curved_version = apply_antialiasing(curved_version)
         
-        # Save both variations
+        #save both variations
         thick_path = os.path.join(output_folder, f"{base_name}_white_thick.ico")
         curved_path = os.path.join(output_folder, f"{base_name}_white_curved.ico")
         
@@ -316,7 +304,7 @@ def process_icon_with_edges(img, base_name, output_folder):
         print(f"Failed to process versions for {base_name}: {e}")
 
 def form_coherent_lines_thick(image):
-    # Previous implementation with 7x7 kernel
+    #previous implementation with 7x7 kernel
     img_array = np.array(image)
     if len(img_array.shape) == 3:
         gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
@@ -340,7 +328,7 @@ def form_coherent_lines_thick(image):
     return Image.fromarray(result)
 
 def form_coherent_lines_curved(image):
-    # New implementation with contour smoothing
+    #new implementation with contour smoothing
     img_array = np.array(image)
     if len(img_array.shape) == 3:
         gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
@@ -388,7 +376,7 @@ def process_icon(img, base_name, output_folder):
             img_variant.save(output_path, format='ICO')
             print(f"Saved {filename_suffix} version: {output_path}")
 
-        # Standard variations
+        #standard variations
         process_variation(lambda r, g, b: (r + g + b) / 3 < 128, "white")
         process_variation(lambda r, g, b: (r + g + b) / 3 >= 128, "white_alt")
         process_variation(lambda r, g, b: True, "white_original")
@@ -397,19 +385,19 @@ def process_icon(img, base_name, output_folder):
         process_variation(lambda r, g, b: (r + g + b) / 3 >= 225, "white_only")
         process_variation(lambda r, g, b: (r + g + b) / 3 <= 60 or 60 < (r + g + b) / 3 < 130 or ((r + g + b) / 3 >= 200 and r > 200 and g > 200 and b > 200), "white_pix")
         
-        # Edge and line detection processing
+        #edge and line detection processing
         process_icon_with_edges(img, base_name, output_folder)
         
-        # Characteristic variations
+        #characteristic variations
         create_characteristic_variations(img_path=None, output_folder=output_folder, img=img, base_name=base_name)
 
     except Exception as e:
         print(f"Failed to process icon for {base_name}: {e}")
 
 def create_characteristic_variations(img_path=None, output_folder=None, img=None, base_name=None):
-    """Creates two opposing variations based on dominant image characteristics."""
+    #creates two opposing variations based on dominant image characteristics
     try:
-        # Handle both direct image input and path input
+        #handle both direct image input and path input
         if img_path is not None:
             img = Image.open(img_path).convert("RGBA")
             base_name = os.path.splitext(os.path.basename(img_path))[0]
@@ -418,19 +406,19 @@ def create_characteristic_variations(img_path=None, output_folder=None, img=None
             
         width, height = img.size
         
-        # Analysis arrays
+        #analysis arrays
         color_data = []
         total_pixels = 0
         
-        # Collect color data
+        #collect color data
         for y in range(height):
             for x in range(width):
                 r, g, b, a = img.getpixel((x, y))
-                if a > 30:  # Only consider visible pixels
+                if a > 30:  #only consider visible pixels
                     total_pixels += 1
                     brightness = (r + g + b) / 3
                     saturation = max(r, g, b) - min(r, g, b)
-                    color_temp = (r - b)  # Simple warm-cool measure
+                    color_temp = (r - b)  #simple warm-cool measure
                     color_data.append({
                         'pos': (x, y),
                         'brightness': brightness,
@@ -442,7 +430,7 @@ def create_characteristic_variations(img_path=None, output_folder=None, img=None
         if not color_data:
             return
         
-        # Calculate variances for each characteristic
+        #calculate variances for each characteristic
         avg_bright = sum(c['brightness'] for c in color_data) / total_pixels
         avg_sat = sum(c['saturation'] for c in color_data) / total_pixels
         avg_temp = sum(c['temperature'] for c in color_data) / total_pixels
@@ -451,7 +439,7 @@ def create_characteristic_variations(img_path=None, output_folder=None, img=None
         var_sat = sum((c['saturation'] - avg_sat) ** 2 for c in color_data)
         var_temp = sum((c['temperature'] - avg_temp) ** 2 for c in color_data)
         
-        # Determine dominant characteristic
+        #determine dominant characteristic
         characteristics = {
             'brightness': (var_bright, avg_bright, '_light', '_dark'),
             'saturation': (var_sat, avg_sat, '_saturated', '_muted'),
@@ -460,11 +448,11 @@ def create_characteristic_variations(img_path=None, output_folder=None, img=None
         
         dominant_char = max(characteristics.items(), key=lambda x: x[1][0])
         
-        # Create two opposing images
+        #create two opposing images
         img_type1 = Image.new("RGBA", img.size, (255, 255, 255, 0))
         img_type2 = Image.new("RGBA", img.size, (255, 255, 255, 0))
         
-        # Split pixels based on dominant characteristic
+        #split pixels based on dominant characteristic
         avg_value = dominant_char[1][1]
         suffix1 = dominant_char[1][2]
         suffix2 = dominant_char[1][3]
@@ -484,13 +472,13 @@ def create_characteristic_variations(img_path=None, output_folder=None, img=None
                     else:
                         img_type2.putpixel((x, y), (255, 255, 255, a))
         
-        # Apply enhanced processing to characteristic variations
+        #apply enhanced processing to characteristic variations
         img_type1 = enhanced_remove_artifacts(img_type1)
         img_type2 = enhanced_remove_artifacts(img_type2)
         img_type1 = apply_antialiasing(img_type1)
         img_type2 = apply_antialiasing(img_type2)
         
-        # Save variations
+        #save variations
         type1_path = os.path.join(output_folder, f"{base_name}{suffix1}.ico")
         type2_path = os.path.join(output_folder, f"{base_name}{suffix2}.ico")
         img_type1.save(type1_path, format='ICO')
@@ -501,15 +489,15 @@ def create_characteristic_variations(img_path=None, output_folder=None, img=None
         print(f"Failed to create characteristic variations: {e}")
 
 def find_steam_libraries():
-    """Finds all Steam library folders on the system."""
+    #fFinds all Steam library folders on the system
     steam_libraries = []
-    drives = ['C:', 'D:', 'E:', 'F:', 'G:']  # Add or remove drives as needed
+    drives = ['C:', 'D:', 'E:', 'F:', 'G:']  #add or remove drives as needed, OP's config
     
     for drive in drives:
         steam_path = os.path.join(drive, os.sep, 'Program Files (x86)', 'Steam')
         if os.path.exists(steam_path):
             steam_libraries.append(steam_path)
-            # Check for additional library folders in libraryfolders.vdf
+            #check for additional library folders in libraryfolders.vdf
             libraryfolders_path = os.path.join(steam_path, 'steamapps', 'libraryfolders.vdf')
             if os.path.exists(libraryfolders_path):
                 with open(libraryfolders_path, 'r', encoding='utf-8') as f:
@@ -522,7 +510,7 @@ def find_steam_libraries():
     return steam_libraries
 
 def find_steam_app_icons(steam_libraries):
-    """Finds Steam app icons in the given Steam libraries."""
+    #finds Steam app icons in the given Steam libraries
     steam_icons = []
     for library in steam_libraries:
         steamapps_path = os.path.join(library, 'steamapps', 'common')
@@ -540,7 +528,7 @@ def main():
     
     files_processed = False
     
-    # Search for .lnk, .exe, .dll, and .ico files
+    #search for .lnk, .exe, .dll, and .ico files
     valid_extensions = ('.lnk', '.exe', '.dll', '.ico', '.url')
     for file in os.listdir(script_dir):
         if file.lower().endswith(valid_extensions):
@@ -550,12 +538,12 @@ def main():
             if file.lower().endswith('.lnk'):
                 icon_path = get_target_and_icon_from_lnk(file_path)
             else:
-                icon_path = file_path  # Directly use .exe, .dll, or .ico files
+                icon_path = file_path  #directly use .exe, .dll, or .ico files
             
             if icon_path:
                 img = extract_icon(icon_path)
                 if img:
-                    # Save original icon
+                    #save original icon
                     icon_save_path = os.path.join(output_folder, f"{base_name}.ico")
                     img.save(icon_save_path, format='ICO')
                     process_icon(img, base_name, output_folder)
@@ -565,14 +553,14 @@ def main():
             else:
                 print(f"Skipping {file}, no valid icon found.")
     
-    # Search for Steam app icons
+    #search for Steam app icons
     steam_libraries = find_steam_libraries()
     steam_icons = find_steam_app_icons(steam_libraries)
     for icon_path in steam_icons:
         base_name = os.path.splitext(os.path.basename(icon_path))[0]
         img = extract_icon(icon_path)
         if img:
-            # Save original icon
+            #save original icon
             icon_save_path = os.path.join(output_folder, f"{base_name}.ico")
             img.save(icon_save_path, format='ICO')
             process_icon(img, base_name, output_folder)
