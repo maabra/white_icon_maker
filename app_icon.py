@@ -491,7 +491,7 @@ def create_characteristic_variations(img_path=None, output_folder=None, img=None
 def find_steam_libraries():
     #fFinds all Steam library folders on the system
     steam_libraries = []
-    drives = ['C:', 'D:', 'E:', 'F:', 'G:']  #add or remove drives as needed, OP's config
+    drives = ['C:', 'D:', 'E:', 'F:', 'G:', 'H:', 'I:', 'J:']  #add or remove drives as needed, OP's config
     
     for drive in drives:
         steam_path = os.path.join(drive, os.sep, 'Program Files (x86)', 'Steam')
@@ -575,3 +575,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
